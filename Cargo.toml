@@ -1,0 +1,19 @@
+[package]
+name = "mallog"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate_type = ["cdylib"]
+
+[dependencies]
+ctor = "0.1"
+frida-gum = { version = "0.6", features = ["invocation-listener", "backtrace"], git = "https://github.com/frida/frida-rust", branch = "master" }  # required for backtrace generation from cpu context
+jemallocator = "0.5"
+lazy_static = "1.4"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+state = { version = "0.5", features = ["tls"], git = "https://github.com/laomaiweng/state", branch = "thread_local_try_with" }  # required to not panic on post-TLS-destruction events
+toml = "0.5"
+unwind = "0.4"
