@@ -5,11 +5,11 @@ use serde_derive::Deserialize;
 
 pub(crate) static CONFIG: &str = "allog.toml";
 
-#[allow(non_camel_case_types)]  // Keeps the config file all lowercase
 #[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub(crate) enum ConfigAllocator {
-    malloc,
-    talloc,
+    Malloc,
+    Talloc,
 }
 
 #[derive(Deserialize)]

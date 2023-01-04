@@ -92,7 +92,7 @@ impl InvocationListener for MallocAllocListener {
         if let Some((mut alloc, callstack)) = self.pop_pending_alloc() {
             alloc.address = context.return_value();
             let mut state = State::get().unwrap();
-            state.trace.add_event(Event::alloc(alloc), Some(callstack));
+            state.trace.add_event(Event::Alloc(alloc), Some(callstack));
             self.count += 1;
         }
     }
@@ -127,7 +127,7 @@ impl InvocationListener for MallocFreeListener {
         if let Some(free) = self.pop_pending_free() {
             let callstack = Callstack::capture(&context);
             let mut state = State::get().unwrap();
-            state.trace.add_event(Event::free(free), Some(callstack));
+            state.trace.add_event(Event::Free(free), Some(callstack));
             self.count += 1;
         }
     }

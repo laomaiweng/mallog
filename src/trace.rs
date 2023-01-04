@@ -39,11 +39,11 @@ pub struct FreeEvent {
 }
 
 /// Allocator event.
-#[allow(non_camel_case_types)]  // Keeps the trace file all lowercase
 #[derive(Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Event {
-    alloc(AllocEvent),
-    free(FreeEvent),
+    Alloc(AllocEvent),
+    Free(FreeEvent),
     // Realloc
     // Custom
 }
@@ -75,11 +75,11 @@ impl Trace {
         // Update the event.
         let cid = callstack.as_ref().map_or(0, |cs| cs.id());
         match event {
-            Event::alloc(ref mut alloc) => {
+            Event::Alloc(ref mut alloc) => {
                 alloc.timestamp = get_timestamp();
                 alloc.callstack = cid;
             },
-            Event::free(ref mut free) => {
+            Event::Free(ref mut free) => {
                 free.timestamp = get_timestamp();
                 free.callstack = cid;
             },

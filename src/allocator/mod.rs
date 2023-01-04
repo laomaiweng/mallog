@@ -40,7 +40,7 @@ impl AllocatorOps for Allocator {
 impl From<&ConfigAllocator> for Allocator {
     fn from(ca: &ConfigAllocator) -> Self {
         match ca {
-            ConfigAllocator::malloc => Allocator::Malloc(malloc::Malloc::new()),
+            ConfigAllocator::Malloc => Allocator::Malloc(malloc::Malloc::new()),
             _ => Allocator::Noop(Noop{}),
         }
     }
