@@ -15,21 +15,21 @@ macro_rules! log_with {
 #[allow(unused_macros)]
 macro_rules! log {
     ($($args:expr),+) => {
-        log_with!(print, "<mallog> [+] ", $($args),+)
+        log_with!(print, "<allog> [+] ", $($args),+)
     };
 }
 
 /// Log an info/success message to stdout, with trailing newline.
 macro_rules! logln {
     ($($args:expr),+) => {
-        log_with!(println, "<mallog> [+] ", $($args),+)
+        log_with!(println, "<allog> [+] ", $($args),+)
     };
 }
 
 /// Log an error message to stderr, with trailing newline.
 macro_rules! elogln {
     ($($args:expr),+) => {
-        log_with!(eprintln, "<mallog> [!] ", $($args),+)
+        log_with!(eprintln, "<allog> [!] ", $($args),+)
     };
 }
 

@@ -3,7 +3,14 @@ use std::path::Path;
 
 use serde_derive::Deserialize;
 
-pub(crate) static CONFIG: &str = "mallog.toml";
+pub(crate) static CONFIG: &str = "allog.toml";
+
+#[allow(non_camel_case_types)]  // Keeps the config file all lowercase
+#[derive(Deserialize)]
+pub(crate) enum ConfigAllocator {
+    malloc,
+    talloc,
+}
 
 #[derive(Deserialize)]
 pub(crate) struct ConfigTargets {
@@ -14,6 +21,7 @@ pub(crate) struct ConfigTargets {
 
 #[derive(Deserialize)]
 pub(crate) struct Config {
+    pub allocator: ConfigAllocator,
     pub targets: ConfigTargets,
 }
 
@@ -32,6 +40,8 @@ mod tests {
     #[test]
     fn load() {
         let res = toml::from_str::<Config>(r#"
+            allocator = "malloc"
+
             [targets]
             alloc = "malloc" #, "calloc", "memalign"]
             #realloc = "realloc"

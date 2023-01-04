@@ -12,6 +12,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "allog"
+version = "0.1.0"
+dependencies = [
+ "ctor",
+ "frida-gum",
+ "jemallocator",
+ "lazy_static",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "state",
+ "toml",
+ "unwind",
+]
+
+[[package]]
 name = "ansi_term"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -325,22 +341,6 @@ dependencies = [
  "serde_json",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "mallog"
-version = "0.1.0"
-dependencies = [
- "ctor",
- "frida-gum",
- "jemallocator",
- "lazy_static",
- "serde",
- "serde_derive",
- "serde_json",
- "state",
- "toml",
- "unwind",
 ]
 
 [[package]]

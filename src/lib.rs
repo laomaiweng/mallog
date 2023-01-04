@@ -1,24 +1,24 @@
 use std::cell::{RefCell, RefMut};
-use std::collections::HashMap;
 use std::fmt;
 use std::mem;
 use std::os::raw::c_void;
 use std::ptr;
 use std::sync::{LockResult, RwLock, RwLockWriteGuard};
 
-use frida_gum::{Gum, interceptor::{Interceptor, InvocationContext}};
+use frida_gum::{Gum, interceptor::{Interceptor, InvocationListener}};
 use jemallocator::Jemalloc;
 use lazy_static::lazy_static;
-use serde_derive::Serialize;
 use state::{LocalStorage, Storage};
 
 #[macro_use] mod log; // Declare first so other modules may use the macros.
+mod allocator;
 mod config;
-mod hooks;
 #[cfg(not(test))] // Don't bring the setup code into scope for tests.
 mod setup;
+mod trace;
 
-use hooks::{AllocListener, FreeListener};
+use allocator::Allocator;
+use trace::{AllocEvent, Callstack, FreeEvent, Trace};
 
 // Don't shit where you eat: use a non-malloc global allocator.
 #[global_allocator]
@@ -108,6 +108,15 @@ impl Drop for HookGuard {
     }
 }
 
+/// Hook a function with Frida Interceptor, returning a guard.
+#[allow(dead_code)]
+fn hook_function(interceptor: &mut Interceptor, name: &str, addr: MyNativePointer, hook: MyNativePointer) -> Result<HookGuard, String> {
+    interceptor.replace(addr.into(), hook.into(), frida_gum::NativePointer(ptr::null_mut()))
+        .map_err(|e| format!("Failed to hook function {}: {}", name, e))?;
+    logln!("Hooked {} @ {:p} with function @ {:p}", name, addr, hook);
+    Ok(HookGuard(addr))
+}
+
 /// Hooked function info.
 #[allow(dead_code)]
 struct Hook<T> {
@@ -139,57 +148,43 @@ impl Drop for ListenerGuard {
     }
 }
 
-/// A callstack as a vector of return addresses.
-#[derive(Serialize)]
-struct Callstack(Vec<usize>);
+/// Attach to a function with Frida Interceptor, returning a guard.
+fn attach_listener<I: InvocationListener>(interceptor: &mut Interceptor, addr: MyNativePointer, listener: &mut I) -> ListenerGuard {
+    ListenerGuard(interceptor.attach(addr.into(), listener).into())
+}
 
-impl Callstack {
-    fn capture(context: &InvocationContext<'_>) -> Self {
-        Callstack(context.cpu_context().backtrace_accurate())
+trait EventListener {
+    fn push_pending_alloc(&self, size: usize, callstack: Callstack) {
+        if let Some(mut thread) = ThreadState::get() {
+            thread.pending_allocs.push((
+                AllocEvent {
+                    timestamp: 0,
+                    address: 0,
+                    size,
+                    callstack: 0,
+                },
+                callstack
+            ));
+        }
     }
 
-    fn id(&self) -> usize {
-        self.0.iter().fold(0, |id, frame| id ^ frame)
+    fn pop_pending_alloc(&self) -> Option<(AllocEvent, Callstack)> {
+        ThreadState::get().and_then(|mut thread| thread.pending_allocs.pop())
     }
-}
 
-/// Allocator event: alloc.
-#[derive(Serialize)]
-struct AllocEvent {
-    timestamp: u64,
-    address: usize,
-    size: usize,
-    callstack: usize,
-}
+    fn push_pending_free(&self, address: usize) {
+        if let Some(mut thread) = ThreadState::get() {
+            thread.pending_frees.push(FreeEvent {
+                timestamp: 0,
+                address,
+                callstack: 0,
+            });
+        }
+    }
 
-/// Allocator event: free.
-#[derive(Serialize)]
-struct FreeEvent {
-    timestamp: u64,
-    address: usize,
-    callstack: usize,
-}
-
-/// Allocator event.
-#[derive(Serialize)]
-enum Event {
-    Alloc(AllocEvent),
-    Free(FreeEvent),
-    // Realloc
-    // Custom
-}
-
-/// Trace metadata.
-#[derive(Serialize)]
-struct TraceMeta {
-    callstack: HashMap<usize, Callstack>,
-}
-
-/// Complete trace output.
-#[derive(Serialize)]
-struct Trace {
-    events: Vec<Event>,
-    meta: TraceMeta,
+    fn pop_pending_free(&self) -> Option<FreeEvent> {
+        ThreadState::get().and_then(|mut thread| thread.pending_frees.pop())
+    }
 }
 
 /// Thread-local state.
@@ -199,7 +194,7 @@ struct ThreadState {
 }
 
 impl ThreadState {
-    fn create() {
+    fn init() {
         THREAD_STATE.set(|| RefCell::new(ThreadState {
             pending_allocs: Vec::new(),
             pending_frees: Vec::new(),
@@ -219,22 +214,15 @@ impl ThreadState {
 
 /// Global state.
 struct State {
-    alloc: AllocListener,
-    free: FreeListener,
+    allocator: Allocator,
     trace: Trace,
 }
 
 impl State {
-    fn create() {
+    fn create(allocator: Allocator) {
         STATE.set(RwLock::new(State {
-            alloc: AllocListener::new(),
-            free: FreeListener::new(),
-            trace: Trace {
-                events: Vec::new(),
-                meta: TraceMeta {
-                    callstack: HashMap::new(),
-                },
-            },
+            allocator,
+            trace: Trace::new(),
         }));
     }
 
@@ -248,7 +236,7 @@ impl State {
 
     fn reset() {
         // Replace the previous state with a dummy one.
-        Self::create();
+        Self::create(Allocator::Noop(allocator::Noop{}));
     }
 }
 
