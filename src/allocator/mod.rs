@@ -40,8 +40,8 @@ impl AllocatorOps for Allocator {
 impl From<&ConfigAllocator> for Allocator {
     fn from(ca: &ConfigAllocator) -> Self {
         match ca {
-            ConfigAllocator::Malloc => Allocator::Malloc(malloc::Malloc::new()),
-            _ => Allocator::Noop(Noop{}),
+            ConfigAllocator::Malloc => Allocator::Malloc(malloc::Malloc::default()),
+            _ => unimplemented!("Allocator not implemented yet!"),
         }
     }
 }

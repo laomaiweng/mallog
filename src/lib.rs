@@ -5,7 +5,7 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::sync::{LockResult, RwLock, RwLockWriteGuard};
 
-use frida_gum::{Gum, interceptor::{Interceptor, InvocationListener}};
+use frida_gum::{Gum, Module, interceptor::{Interceptor, InvocationListener}};
 use jemallocator::Jemalloc;
 use lazy_static::lazy_static;
 use state::{LocalStorage, Storage};
@@ -18,7 +18,8 @@ mod setup;
 mod trace;
 
 use allocator::Allocator;
-use trace::{AllocEvent, Callstack, FreeEvent, Trace};
+use config::Config;
+use trace::{AllocEvent, Callstack, Event, FreeEvent, ReallocEvent, Trace};
 
 // Don't shit where you eat: use a non-malloc global allocator.
 #[global_allocator]
@@ -153,8 +154,33 @@ fn attach_listener<I: InvocationListener>(interceptor: &mut Interceptor, addr: M
     ListenerGuard(interceptor.attach(addr.into(), listener).into())
 }
 
+fn attach_target<I: InvocationListener>(interceptor: &mut Interceptor, config: &Config, target: &'static str, listener: &mut I) -> Option<ListenerGuard> {
+        let name = config.get_target(target);
+        if name.is_empty() {
+            logln!("Ignoring disabled {} listener.", target);
+            return None;
+        }
+        let addr = Module::find_export_by_name(None, name);
+        if let Some(addr) = addr {
+            let addr = addr.into();
+            let guard = attach_listener(interceptor, addr, listener);
+            logln!("Attached {} listener: {} @ {:p}", target, name, addr);
+            Some(guard)
+        } else {
+            elogln!("Missing export: {}", name);
+            None
+        }
+}
+
+fn detach_target(target: &str, guard: &mut Option<ListenerGuard>, count: usize) {
+    if guard.take().is_some() {
+        logln!("Detached the {} listener after {} calls.", target, count);
+    }
+}
+
+/// Helper trait for allocator event listeners to store/retrieve partial events from the thread state.
 trait EventListener {
-    fn push_pending_alloc(&self, size: usize, callstack: Callstack) {
+    fn queue_pending_alloc(&self, size: usize, callstack: Callstack) {
         if let Some(mut thread) = ThreadState::get() {
             thread.pending_allocs.push((
                 AllocEvent {
@@ -168,11 +194,38 @@ trait EventListener {
         }
     }
 
-    fn pop_pending_alloc(&self) -> Option<(AllocEvent, Callstack)> {
-        ThreadState::get().and_then(|mut thread| thread.pending_allocs.pop())
+    fn complete_pending_alloc(&self, address: usize) {
+        if let Some((mut alloc, callstack)) = ThreadState::get().and_then(|mut thread| thread.pending_allocs.pop()) {
+            alloc.address = address;
+            let mut state = State::get().unwrap();
+            state.trace.add_event(Event::Alloc(alloc), Some(callstack));
+        }
     }
 
-    fn push_pending_free(&self, address: usize) {
+    fn queue_pending_realloc(&self, old_address: usize, size: usize, callstack: Callstack) {
+        if let Some(mut thread) = ThreadState::get() {
+            thread.pending_reallocs.push((
+                ReallocEvent {
+                    timestamp: 0,
+                    old_address,
+                    new_address: 0,
+                    size,
+                    callstack: 0,
+                },
+                callstack
+            ));
+        }
+    }
+
+    fn complete_pending_realloc(&self, new_address: usize) {
+        if let Some((mut realloc, callstack)) = ThreadState::get().and_then(|mut thread| thread.pending_reallocs.pop()) {
+            realloc.new_address = new_address;
+            let mut state = State::get().unwrap();
+            state.trace.add_event(Event::Realloc(realloc), Some(callstack));
+        }
+    }
+
+    fn queue_pending_free(&self, address: usize) {
         if let Some(mut thread) = ThreadState::get() {
             thread.pending_frees.push(FreeEvent {
                 timestamp: 0,
@@ -182,14 +235,18 @@ trait EventListener {
         }
     }
 
-    fn pop_pending_free(&self) -> Option<FreeEvent> {
-        ThreadState::get().and_then(|mut thread| thread.pending_frees.pop())
+    fn complete_pending_free(&self, callstack: Callstack) {
+        if let Some(free) = ThreadState::get().and_then(|mut thread| thread.pending_frees.pop()) {
+            let mut state = State::get().unwrap();
+            state.trace.add_event(Event::Free(free), Some(callstack));
+        }
     }
 }
 
 /// Thread-local state.
 struct ThreadState {
     pending_allocs: Vec<(AllocEvent, Callstack)>,
+    pending_reallocs: Vec<(ReallocEvent, Callstack)>,
     pending_frees: Vec<FreeEvent>,
 }
 
@@ -197,6 +254,7 @@ impl ThreadState {
     fn init() {
         THREAD_STATE.set(|| RefCell::new(ThreadState {
             pending_allocs: Vec::new(),
+            pending_reallocs: Vec::new(),
             pending_frees: Vec::new(),
         }));
     }

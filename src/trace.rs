@@ -30,6 +30,16 @@ pub struct AllocEvent {
     pub callstack: usize,
 }
 
+/// Allocator event: realloc.
+#[derive(Serialize)]
+pub struct ReallocEvent {
+    pub timestamp: u64,
+    pub old_address: usize,
+    pub new_address: usize,
+    pub size: usize,
+    pub callstack: usize,
+}
+
 /// Allocator event: free.
 #[derive(Serialize)]
 pub struct FreeEvent {
@@ -43,8 +53,8 @@ pub struct FreeEvent {
 #[serde(rename_all = "lowercase")]
 pub enum Event {
     Alloc(AllocEvent),
+    Realloc(ReallocEvent),
     Free(FreeEvent),
-    // Realloc
     // Custom
 }
 
@@ -78,6 +88,10 @@ impl Trace {
             Event::Alloc(ref mut alloc) => {
                 alloc.timestamp = get_timestamp();
                 alloc.callstack = cid;
+            },
+            Event::Realloc(ref mut realloc) => {
+                realloc.timestamp = get_timestamp();
+                realloc.callstack = cid;
             },
             Event::Free(ref mut free) => {
                 free.timestamp = get_timestamp();
