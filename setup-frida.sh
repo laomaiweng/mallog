@@ -17,13 +17,16 @@ die() {
 
 base="${0%/*}"
 devkits="$base"/devkits
+target="$base"/target
 
 # these dirs are passed by cargo/rustc to ld as "-L" directories
 # we'll symlink the frida static libs in there so that ld finds them
-mkdir -p "$base"/target/{debug,release}/deps || die mkdir
+mkdir -p "$target"/{debug,release}/deps || die mkdir
+echo "Signature: 8a477f597d28d172789f06886806bc55" >"$target"/CACHEDIR.TAG  # play nice with backup systems
 
 # download, extract and symlink the devkits
 mkdir -p "$devkits" || die mkdir
+echo "Signature: 8a477f597d28d172789f06886806bc55" >"$devkits"/CACHEDIR.TAG  # play nice with backup systems
 for lib in core gum; do
     tarball=$(frida_devkit "$lib")
     if [[ ! -f "$devkits/$tarball" ]]; then
@@ -31,6 +34,6 @@ for lib in core gum; do
     fi
     tar -C "$devkits" -xvf "$devkits/$tarball" || die tar
     for d in debug release; do
-        ln -sf ../../../devkits/libfrida-"$lib".a "$base/target/$d/deps" || die ln
+        ln -sf ../../../devkits/libfrida-"$lib".a "$target/$d/deps" || die ln
     done
 done
