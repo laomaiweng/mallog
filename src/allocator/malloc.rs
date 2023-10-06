@@ -7,13 +7,13 @@ use crate::config::Config;
 use crate::trace::Callstack;
 use super::AllocatorOps;
 
-//TODO: reallocarray
 #[derive(Default)]
 pub(crate) struct Malloc {
     malloc: MallocListener,
     calloc: CallocListener,
     memalign: MemalignListener,
     realloc: ReallocListener,
+    reallocarray: ReallocarrayListener,
     free: FreeListener,
 }
 
@@ -26,6 +26,7 @@ impl AllocatorOps for Malloc {
         self.calloc.guard = attach_target(&mut interceptor, config, "calloc", &mut self.calloc);
         self.memalign.guard = attach_target(&mut interceptor, config, "memalign", &mut self.memalign);
         self.realloc.guard = attach_target(&mut interceptor, config, "realloc", &mut self.realloc);
+        self.reallocarray.guard = attach_target(&mut interceptor, config, "reallocarray", &mut self.reallocarray);
         self.free.guard = attach_target(&mut interceptor, config, "free", &mut self.free);
 
         Ok(())
@@ -35,6 +36,7 @@ impl AllocatorOps for Malloc {
         detach_target("calloc", &mut self.calloc.guard, self.calloc.count);
         detach_target("memalign", &mut self.memalign.guard, self.memalign.count);
         detach_target("realloc", &mut self.realloc.guard, self.realloc.count);
+        detach_target("reallocarray", &mut self.reallocarray.guard, self.reallocarray.count);
         detach_target("free", &mut self.free.guard, self.free.count);
 
         Ok(())
@@ -153,7 +155,44 @@ impl InvocationListener for ReallocListener {
                                                       //would save us having to store it in the
                                                       //thread state
 
-        self.queue_pending_realloc(context.arg(0), context.arg(1), callstack);
+        let ptr = context.arg(0);
+        let size = context.arg(1);
+        self.queue_pending_realloc(ptr, size, callstack);
+    }
+
+    fn on_leave(&mut self, context: InvocationContext<'_>) {
+        // Complete the last pending realloc for this thread.
+        self.complete_pending_realloc(context.return_value());
+        self.count += 1;
+    }
+}
+
+/// Reallocarray listener.
+#[derive(Default)]
+struct ReallocarrayListener {
+    guard: Option<ListenerGuard>,
+    count: usize,
+}
+
+impl EventListener for ReallocarrayListener {}
+
+// /!\: See the warning above the impl of InvocationListener for MallocListener.
+impl InvocationListener for ReallocarrayListener {
+    fn on_enter(&mut self, context: InvocationContext<'_>) {
+        // Queue a pending realloc for this thread.
+        let callstack = Callstack::capture(&context); //TODO: can we capture in on_leave()?
+                                                      //would save us having to store it in the
+                                                      //thread state
+
+        let ptr = context.arg(0);
+        let nmemb = context.arg(1);
+        let size = context.arg(2);
+        if let Some(total) = nmemb.checked_mul(size) {
+            //TODO: store nmemb & size in metadata
+            self.queue_pending_realloc(ptr, total, callstack);
+        } else {
+            //TODO: record event for overflow
+        }
     }
 
     fn on_leave(&mut self, context: InvocationContext<'_>) {
